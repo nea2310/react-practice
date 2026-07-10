@@ -22,13 +22,6 @@ const notificationsSlice = createSlice({
         metadata.read = true
       })
     },
-    clearIsNewForAll(state) {
-      Object.values(state.entities).forEach((metadata) => {
-        if (metadata.read) {
-          metadata.isNew = false
-        }
-      })
-    },
     markNotificationsRead(state, action: PayloadAction<string[]>) {
       action.payload.forEach((id) => {
         const meta = state.entities[id]
@@ -41,30 +34,20 @@ const notificationsSlice = createSlice({
         if (meta) meta.isNew = false
       })
     },
-    markNotificationsNew(state, action: PayloadAction<string[]>) {
-      action.payload.forEach((id) => {
-        const meta = state.entities[id]
-        if (meta) {
-          meta.isNew = true
-        }
-      })
-    },
+    // (другие редьюсеры, если есть)
   },
   extraReducers: (builder) => {
     builder.addCase(notificationsReceived, (state, action) => {
       const notifications = action.payload
       const newMetadata: NotificationMetadata[] = notifications
-        .filter((n) => !state.entities[n.id])
-        .map((n) => ({
-          id: n.id,
-          read: false,
-          isNew: true,
-        }))
+          .filter((n) => !state.entities[n.id]) // только новые
+          .map((n) => ({
+            id: n.id,
+            read: false,
+            isNew: true,
+          }))
 
-      Object.values(state.entities).forEach((metadata) => {
-        metadata.isNew = !metadata.read
-      })
-
+      // Добавляем только новые записи, не трогая существующие
       metadataAdapter.upsertMany(state, newMetadata)
     })
   },
@@ -72,17 +55,14 @@ const notificationsSlice = createSlice({
 
 export const {
   allNotificationsRead,
-  clearIsNewForAll,
   markNotificationsRead,
   markNotificationsOld,
-  markNotificationsNew,
 } = notificationsSlice.actions
 
 export default notificationsSlice.reducer
 
-// Селекторы без зависимости от RootState
 export const { selectAll: selectAllNotificationsMetadata, selectEntities: selectMetadataEntities } =
-  metadataAdapter.getSelectors((state: any) => state.notifications)
+    metadataAdapter.getSelectors((state: any) => state.notifications)
 
 export const selectUnreadCount = (state: any) => {
   const allMetadata = selectAllNotificationsMetadata(state)

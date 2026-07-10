@@ -1,10 +1,9 @@
 // features/Notifications.tsx
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { useGetNotificationsQuery } from '../api/apiSlice'
 import {
   allNotificationsRead,
-  clearIsNewForAll,
-  markNotificationsNew,
+  markNotificationsOld,
   selectMetadataEntities,
 } from './notificationsSlice'
 import { setNotificationsPageOpen } from './uiSlice'
@@ -14,8 +13,9 @@ const Notifications = () => {
   const dispatch = useAppDispatch()
   const { data: notifications = [] } = useGetNotificationsQuery()
   const metadataEntities = useAppSelector(selectMetadataEntities)
+  const containerRef = useRef<HTMLUListElement>(null)
+  const seenIds = useRef<Set<string>>(new Set())
 
-  // Устанавливаем флаг открытой вкладки
   useEffect(() => {
     dispatch(setNotificationsPageOpen(true))
     return () => {
@@ -23,52 +23,62 @@ const Notifications = () => {
     }
   }, [dispatch])
 
-  // Логика при загрузке/обновлении данных
   useEffect(() => {
     if (notifications.length > 0) {
-      // 1. Собираем ID непрочитанных до того, как пометим их прочитанными
-      const unreadIds = Object.values(metadataEntities)
-        .filter((meta) => !meta.read)
-        .map((meta) => meta.id)
-
-      // 2. Помечаем все как прочитанные (счётчик обнуляется)
       dispatch(allNotificationsRead())
-
-      // 3. Помечаем те, что были непрочитанными, как новые (isNew = true) – они станут жёлтыми
-      if (unreadIds.length > 0) {
-        dispatch(markNotificationsNew(unreadIds))
-      }
-
-      // 4. Через 5 секунд снимаем выделение со всех, у кого read === true
-      const timer = setTimeout(() => {
-        dispatch(clearIsNewForAll())
-      }, 5000)
-
-      return () => clearTimeout(timer)
     }
-  }, [dispatch, notifications, metadataEntities]) // добавили metadataEntities в зависимости
+  }, [dispatch, notifications])
+
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+
+    const observer = new IntersectionObserver(
+        (entries) => {
+          entries.forEach((entry) => {
+            if (entry.isIntersecting) {
+              const id = entry.target.getAttribute('data-id')
+              if (!id || seenIds.current.has(id)) return
+
+              const metadata = metadataEntities[id]
+              if (metadata?.isNew) {
+                seenIds.current.add(id)
+                dispatch(markNotificationsOld([id]))
+              }
+            }
+          })
+        },
+        { threshold: 0.5 }
+    )
+
+    const children = container.children
+    Array.from(children).forEach((child) => observer.observe(child))
+
+    return () => observer.disconnect()
+  }, [notifications, dispatch, metadataEntities])
 
   return (
-    <div style={{ padding: '20px' }}>
-      <h1>Уведомления</h1>
-      <ul>
-        {notifications.map((item) => {
-          const metadata = metadataEntities[item.id]
-          const isNew = metadata?.isNew ?? false
-          return (
-            <li
-              key={item.id}
-              style={{
-                backgroundColor: isNew ? 'yellow' : 'transparent',
-                transition: 'background-color 0.5s ease',
-              }}
-            >
-              {item.text}
-            </li>
-          )
-        })}
-      </ul>
-    </div>
+      <div style={{ padding: '20px' }}>
+        <h1>Уведомления</h1>
+        <ul ref={containerRef}>
+          {notifications.map((item) => {
+            const metadata = metadataEntities[item.id]
+            const isNew = metadata?.isNew ?? false
+            return (
+                <li
+                    key={item.id}
+                    data-id={item.id}
+                    style={{
+                      backgroundColor: isNew ? 'yellow' : 'transparent',
+                      transition: 'background-color 1s ease 1s',
+                    }}
+                >
+                  {item.text}
+                </li>
+            )
+          })}
+        </ul>
+      </div>
   )
 }
 
