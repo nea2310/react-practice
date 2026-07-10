@@ -1,5 +1,6 @@
 // features/Notifications.tsx
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useCallback, useMemo } from 'react'
+import { List, type RowComponentProps } from 'react-window'
 import { useGetNotificationsQuery } from '../api/apiSlice'
 import {
   allNotificationsRead,
@@ -9,11 +10,41 @@ import {
 import { setNotificationsPageOpen } from './uiSlice'
 import { useAppDispatch, useAppSelector } from '../app/hooks'
 
+type NotificationItemData = {
+  id: string
+  text: string
+  isNew: boolean
+}
+
+// Компонент строки (ожидает пропы: index, style, names)
+const Row = ({
+               index,
+               names,
+               style,
+             }: RowComponentProps<{
+  names: NotificationItemData[]
+}>) => {
+  const item = names[index]
+  return (
+    <div style={{ ...style, borderBottom: '1px solid #eee' }}>
+      <div
+        style={{
+          backgroundColor: item.isNew ? 'yellow' : 'transparent',
+          transition: 'background-color 1s ease 1s',
+          // padding: '8px',
+        }}
+      >
+        {item.text}
+      </div>
+    </div>
+  )
+}
+
 const Notifications = () => {
   const dispatch = useAppDispatch()
   const { data: notifications = [] } = useGetNotificationsQuery()
   const metadataEntities = useAppSelector(selectMetadataEntities)
-  const containerRef = useRef<HTMLUListElement>(null)
+
   const seenIds = useRef<Set<string>>(new Set())
 
   useEffect(() => {
@@ -29,56 +60,50 @@ const Notifications = () => {
     }
   }, [dispatch, notifications])
 
-  useEffect(() => {
-    const container = containerRef.current
-    if (!container) return
+  const itemsData: NotificationItemData[] = useMemo(
+    () =>
+      notifications.map((item) => ({
+        id: item.id,
+        text: item.text,
+        isNew: metadataEntities[item.id]?.isNew ?? false,
+      })),
+    [notifications, metadataEntities]
+  )
 
-    const observer = new IntersectionObserver(
-        (entries) => {
-          entries.forEach((entry) => {
-            if (entry.isIntersecting) {
-              const id = entry.target.getAttribute('data-id')
-              if (!id || seenIds.current.has(id)) return
+  const onItemsRendered = useCallback(
+    ({ startIndex, stopIndex }: { startIndex: number; stopIndex: number }) => {
+      for (let i = startIndex; i <= stopIndex; i++) {
+        const item = itemsData[i]
+        if (!item) continue
+        const { id, isNew } = item
+        if (!isNew) continue
+        if (seenIds.current.has(id)) continue
 
-              const metadata = metadataEntities[id]
-              if (metadata?.isNew) {
-                seenIds.current.add(id)
-                dispatch(markNotificationsOld([id]))
-              }
-            }
-          })
-        },
-        { threshold: 0.5 }
-    )
+        seenIds.current.add(id)
+        dispatch(markNotificationsOld([id]))
+      }
+    },
+    [dispatch, itemsData]
+  )
 
-    const children = container.children
-    Array.from(children).forEach((child) => observer.observe(child))
-
-    return () => observer.disconnect()
-  }, [notifications, dispatch, metadataEntities])
+    const ITEM_HEIGHT = 25
 
   return (
-      <div style={{ padding: '20px' }}>
-        <h1>Уведомления</h1>
-        <ul ref={containerRef}>
-          {notifications.map((item) => {
-            const metadata = metadataEntities[item.id]
-            const isNew = metadata?.isNew ?? false
-            return (
-                <li
-                    key={item.id}
-                    data-id={item.id}
-                    style={{
-                      backgroundColor: isNew ? 'yellow' : 'transparent',
-                      transition: 'background-color 1s ease 1s',
-                    }}
-                >
-                  {item.text}
-                </li>
-            )
-          })}
-        </ul>
-      </div>
+    <div style={{ padding: '20px' }}>
+      <h1>Уведомления</h1>
+      {notifications.length === 0 ? (
+        <p>Нет уведомлений</p>
+      ) : (
+        <List
+            className={'list'}
+              rowCount={itemsData.length}
+          rowHeight={ITEM_HEIGHT}
+          rowComponent={Row}
+          rowProps={{ names: itemsData }}
+          onRowsRendered={onItemsRendered}
+         />
+      )}
+    </div>
   )
 }
 
