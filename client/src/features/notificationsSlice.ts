@@ -40,12 +40,12 @@ const notificationsSlice = createSlice({
     builder.addCase(notificationsReceived, (state, action) => {
       const notifications = action.payload
       const newMetadata: NotificationMetadata[] = notifications
-          .filter((n) => !state.entities[n.id]) // только новые
-          .map((n) => ({
-            id: n.id,
-            read: false,
-            isNew: true,
-          }))
+        .filter((n) => !state.entities[n.id]) // только новые
+        .map((n) => ({
+          id: n.id,
+          read: false,
+          isNew: true,
+        }))
 
       // Добавляем только новые записи, не трогая существующие
       metadataAdapter.upsertMany(state, newMetadata)
@@ -53,16 +53,12 @@ const notificationsSlice = createSlice({
   },
 })
 
-export const {
-  allNotificationsRead,
-  markNotificationsRead,
-  markNotificationsOld,
-} = notificationsSlice.actions
+export const { allNotificationsRead, markNotificationsRead, markNotificationsOld } = notificationsSlice.actions
 
 export default notificationsSlice.reducer
 
 export const { selectAll: selectAllNotificationsMetadata, selectEntities: selectMetadataEntities } =
-    metadataAdapter.getSelectors((state: any) => state.notifications)
+  metadataAdapter.getSelectors((state: any) => state.notifications)
 
 export const selectUnreadCount = (state: any) => {
   const allMetadata = selectAllNotificationsMetadata(state)

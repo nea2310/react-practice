@@ -2,11 +2,7 @@
 import { useEffect, useRef, useCallback, useMemo } from 'react'
 import { List, type RowComponentProps } from 'react-window'
 import { useGetNotificationsQuery } from '../api/apiSlice'
-import {
-  allNotificationsRead,
-  markNotificationsOld,
-  selectMetadataEntities,
-} from './notificationsSlice'
+import { allNotificationsRead, markNotificationsOld, selectMetadataEntities } from './notificationsSlice'
 import { setNotificationsPageOpen } from './uiSlice'
 import { useAppDispatch, useAppSelector } from '../app/hooks'
 
@@ -18,10 +14,10 @@ type NotificationItemData = {
 
 // Компонент строки (ожидает пропы: index, style, names)
 const Row = ({
-               index,
-               names,
-               style,
-             }: RowComponentProps<{
+  index,
+  names,
+  style,
+}: RowComponentProps<{
   names: NotificationItemData[]
 }>) => {
   const item = names[index]
@@ -67,7 +63,7 @@ const Notifications = () => {
         text: item.text,
         isNew: metadataEntities[item.id]?.isNew ?? false,
       })),
-    [notifications, metadataEntities]
+    [notifications, metadataEntities],
   )
 
   const onItemsRendered = useCallback(
@@ -83,10 +79,10 @@ const Notifications = () => {
         dispatch(markNotificationsOld([id]))
       }
     },
-    [dispatch, itemsData]
+    [dispatch, itemsData],
   )
 
-    const ITEM_HEIGHT = 25
+  const ITEM_HEIGHT = 25
 
   return (
     <div style={{ padding: '20px' }}>
@@ -95,13 +91,13 @@ const Notifications = () => {
         <p>Нет уведомлений</p>
       ) : (
         <List
-            className={'list'}
-              rowCount={itemsData.length}
+          className={'list'}
+          rowCount={itemsData.length}
           rowHeight={ITEM_HEIGHT}
           rowComponent={Row}
           rowProps={{ names: itemsData }}
           onRowsRendered={onItemsRendered}
-         />
+        />
       )}
     </div>
   )

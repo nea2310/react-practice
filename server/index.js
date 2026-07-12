@@ -2,13 +2,21 @@ const express = require('express');
 const http = require('http');
 const WebSocket = require('ws');
 const cors = require('cors');
+const jwt = require('jsonwebtoken');
+const bcrypt = require('bcryptjs');
+require('dotenv').config();
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-// ---- Хранилище данных ----
-// Теперь каждый элемент имеет уникальный id и текст
+const PORT = process.env.PORT || 5000;
+const JWT_SECRET = process.env.JWT_SECRET || 'secret';
+
+// ---- In-memory база пользователей ----
+const users = []; // { id, username, passwordHash }
+
+// ---- Хранилище уведомлений ----
 let dataStore = {
     items: [
         { id: 'init-1', text: 'Initial item 1' },
@@ -16,31 +24,95 @@ let dataStore = {
     ],
     lastUpdate: Date.now(),
 };
-
-// Генератор уникальных id (простой счётчик)
 let idCounter = 3;
 
 function generateId() {
     return `item-${idCounter++}`;
 }
 
-// ---- 1. HTTP-эндпоинт для начальных данных ----
-app.get('/api/initial-data', (req, res) => {
-    // Возвращаем массив объектов с id и text
+// ---- HTTP эндпоинты ----
+app.post('/api/register', async (req, res) => {
+    const { username, password } = req.body;
+    if (!username || !password) {
+        return res.status(400).json({ error: 'Username and password required' });
+    }
+    if (users.find(u => u.username === username)) {
+        return res.status(400).json({ error: 'User already exists' });
+    }
+    const passwordHash = await bcrypt.hash(password, 10);
+    const user = { id: Date.now().toString(), username, passwordHash };
+    users.push(user);
+    const token = jwt.sign({ id: user.id, username: user.username }, JWT_SECRET, { expiresIn: '1h' });
+    res.json({ token, user: { id: user.id, username: user.username } });
+});
+
+app.post('/api/login', async (req, res) => {
+    const { username, password } = req.body;
+    if (!username || !password) {
+        return res.status(400).json({ error: 'Username and password required' });
+    }
+    const user = users.find(u => u.username === username);
+    if (!user) {
+        return res.status(400).json({ error: 'Invalid credentials' });
+    }
+    const valid = await bcrypt.compare(password, user.passwordHash);
+    if (!valid) {
+        return res.status(400).json({ error: 'Invalid credentials' });
+    }
+    const token = jwt.sign({ id: user.id, username: user.username }, JWT_SECRET, { expiresIn: '1h' });
+    res.json({ token, user: { id: user.id, username: user.username } });
+});
+
+// ---- Middleware для проверки токена (опционально) ----
+const authenticateToken = (req, res, next) => {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+    if (!token) return res.sendStatus(401);
+    jwt.verify(token, JWT_SECRET, (err, user) => {
+        if (err) return res.sendStatus(403);
+        req.user = user;
+        next();
+    });
+};
+
+app.get('/api/protected', authenticateToken, (req, res) => {
+    res.json({ message: 'This is protected', user: req.user });
+});
+
+// ---- Получение начальных данных (защищённый эндпоинт) ----
+app.get('/api/initial-data', authenticateToken, (req, res) => {
     res.json(dataStore);
 });
 
-// ---- 2. WebSocket-сервер ----
+// ---- WebSocket с аутентификацией ----
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
 const clients = new Set();
 
-wss.on('connection', (ws) => {
-    console.log('🟢 Новый WebSocket-клиент подключился');
-    clients.add(ws);
+// Парсим токен из query-параметра
+function getTokenFromUrl(url) {
+    // Подставляем фиктивный хост для правильного парсинга
+    const parsedUrl = new URL(url, `http://localhost:${PORT}`);
+    return parsedUrl.searchParams.get('token');
+}
 
-    ws.send(JSON.stringify({ type: 'welcome', message: 'Connected to WebSocket server' }));
+wss.on('connection', (ws, req) => {
+    const token = getTokenFromUrl(req.url);
+    if (!token) {
+        ws.close(1008, 'Unauthorized');
+        return;
+    }
+    let user;
+    try {
+        user = jwt.verify(token, JWT_SECRET);
+    } catch (err) {
+        ws.close(1008, 'Unauthorized');
+        return;
+    }
+    console.log(`✅ User ${user.username} connected`);
+    ws.user = user;
+    clients.add(ws);
 
     ws.on('message', (message) => {
         console.log('📩 Получено от клиента:', message.toString());
@@ -52,13 +124,12 @@ wss.on('connection', (ws) => {
     });
 
     ws.on('error', (err) => {
-        console.error('Ошибка WebSocket:', err);
+        console.error('❌ WebSocket error:', err);
     });
 });
 
-// ---- 3. Эмуляция периодических обновлений ----
+// ---- Эмуляция периодических обновлений ----
 setInterval(() => {
-    // Генерируем новое уведомление с id и text
     const newItem = {
         id: generateId(),
         text: `Item ${Date.now()}`,
@@ -66,10 +137,9 @@ setInterval(() => {
     dataStore.items.push(newItem);
     dataStore.lastUpdate = Date.now();
 
-    // Отправляем всем клиентам массив с одним новым уведомлением
     const payload = JSON.stringify({
         type: 'update',
-        payload: [newItem], // отправляем массив, чтобы клиент мог просто объединить
+        payload: [newItem],
     });
 
     for (const client of clients) {
@@ -78,11 +148,9 @@ setInterval(() => {
         }
     }
     console.log(`📤 Отправлено обновление: ${newItem.text} (id: ${newItem.id})`);
-}, 10000); // каждые 30 секунд
+}, 10000);
 
-// ---- 4. Запуск сервера ----
-const PORT = process.env.PORT || 5000;
-server.listen(PORT, '0.0.0.0', () => {
-    console.log(`✅ Сервер запущен на http://localhost:${PORT}`);
-    console.log(`🔌 WebSocket доступен на ws://localhost:${PORT}`);
+// ---- Запуск сервера ----
+server.listen(PORT, () => {
+    console.log(`✅ Server running on port ${PORT}`);
 });
