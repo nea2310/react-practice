@@ -5,10 +5,12 @@ import { notificationsReceived, markNotificationsRead } from '../features/notifi
 import type { RootState } from '../app/store.ts'
 import type { User } from '../features/authSlice.ts'
 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
+
 export const apiSlice = createApi({
   reducerPath: 'api',
   baseQuery: fetchBaseQuery({
-    baseUrl: '/api',
+    baseUrl: API_BASE_URL,
     prepareHeaders: (headers, { getState }) => {
       const token = (getState() as RootState).auth.token
       if (token) {
@@ -51,7 +53,9 @@ export const apiSlice = createApi({
       async onCacheEntryAdded(_arg, lifecycleApi) {
         const state = lifecycleApi.getState() as RootState
         const token = state.auth.token
-        const ws = new WebSocket(`ws://localhost:5000?token=${token}`)
+
+        const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:5000';
+        const ws = new WebSocket(`${WS_URL}?token=${token}`);
         try {
           await lifecycleApi.cacheDataLoaded
           const listener = (event: MessageEvent<string>) => {
